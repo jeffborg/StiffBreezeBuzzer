@@ -41,10 +41,16 @@
 
 #include "secrets.h"
 
-// internal time
-unsigned int intervalSeconds = 10;
-// buzzer internal time
-unsigned int buzzerOnTimeMillis = 200;
+struct Settings {
+  // internal time
+  unsigned int intervalSeconds;
+  // buzzer internal time
+  unsigned int buzzerOnTimeMillis;
+};
+
+Settings timerSettings({120, 500});
+// unsigned int intervalSeconds = 10;
+// unsigned int buzzerOnTimeMillis = 200;
 
 // next scheduled buzzer time
 unsigned long nextBuzzerOffTime = 0;
@@ -59,7 +65,6 @@ ESPDash dashboard(&server);
   Dashboard Cards 
   Format - (Dashboard Instance, Card Type, Card Name, Card Symbol(optional) )
 */
-Card totalTime(&dashboard, GENERIC_CARD, "Total Time");
 Card currentInternal(&dashboard, GENERIC_CARD, "Current Internal");
 Card interval(&dashboard, SLIDER_CARD, "Internal", "", 10, 600); // 10 seconds to 5 minutes
 Card buzzerInternalTime(&dashboard, SLIDER_CARD, "Buzzer", "", 10, 1000); // 10 milliseconds to 1000 milliseconds
@@ -70,14 +75,13 @@ Card timerRunningCard(&dashboard, BUTTON_CARD, "Active");
 void triggerBuzzer();
 
 // main timer
-Ticker timer(triggerBuzzer, intervalSeconds * 1000);
+Ticker timer(triggerBuzzer, timerSettings.intervalSeconds * 1000);
 
 // update cards on dashboard from values
 void updateDashboard() {
-  interval.update((int)intervalSeconds, "Seconds");
-  buzzerInternalTime.update((int) buzzerOnTimeMillis, "MS");  
+  interval.update((int)timerSettings.intervalSeconds, "Seconds");
+  buzzerInternalTime.update((int) timerSettings.buzzerOnTimeMillis, "MS");  
 
-  totalTime.update((int)(millis() / 1000));
   // next time
   if (timer.state() == RUNNING) {
     currentInternal.update((int)(timer.elapsed() / 1000 / 1000) + 1);
@@ -91,6 +95,12 @@ void updateDashboard() {
 
 Button resetButton = Button();
 
+// write values to eeprom
+void updateEEPROM() {
+  EEPROM.put(0, timerSettings);
+  EEPROM.commit();
+}
+
 void resetTimer(bool value) {
     Serial.println("[Card1] Button Callback Triggered: "+String((value)?"true":"false"));
     timer.start();
@@ -101,6 +111,15 @@ void setup() {
   Serial.begin(74880); // same as esp8266 default
 
   EEPROM.begin(512);
+
+  // read in settings
+  if (EEPROM.read(0) != 0xff) {
+    // write default settings to eeprom
+    updateEEPROM();
+  } else {
+    // eeprom is good
+    EEPROM.get(0, timerSettings);
+  }
 
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, LOW); // start with buzzer off
@@ -127,18 +146,22 @@ void setup() {
   updateDashboard();
   // update the dashboard
 
+  // change the buzzer buzzing time
   buzzerInternalTime.attachCallback([&](int value) {
     Serial.println("[buzz internal] Slider Callback Triggered: "+String(value));
 
-    buzzerOnTimeMillis = value;
+    timerSettings.buzzerOnTimeMillis = value;
+    updateEEPROM();
     updateDashboard();
   });
+
+  // updating the internal
   interval.attachCallback([&](int value) {
     Serial.println("[Card1] Slider Callback Triggered: "+String(value));
-
-    intervalSeconds = value;
-    // set the new timer internal
-    timer.interval(intervalSeconds * 1000);
+    timerSettings.intervalSeconds = value;
+    updateEEPROM();
+    // set the new timer interval
+    timer.interval(timerSettings.intervalSeconds * 1000);
     updateDashboard();
   });
   timerRunningCard.attachCallback([&](bool value) {
@@ -179,7 +202,7 @@ void loop() {
 }
 
 void triggerBuzzer() {
-    nextBuzzerOffTime = millis() + buzzerOnTimeMillis;
+    nextBuzzerOffTime = millis() + timerSettings.buzzerOnTimeMillis;
     Serial.println("Buzzer on");
     digitalWrite(RELAY_PIN, HIGH);
     updateDashboard();
