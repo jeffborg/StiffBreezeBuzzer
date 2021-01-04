@@ -17,8 +17,12 @@
 #include <Arduino.h>
 // for every n millis function
 #include <FastLED.h>
+#include <EEPROM.h>
+// debouncing library
+#include <Bounce2.h>
 
 #define RELAY_PIN D1
+#define BUTTON_PIN D7
 
 #if defined(ESP8266)
   /* ESP8266 Dependencies */
@@ -42,7 +46,7 @@ unsigned int buzzerOnTimeMillis = 200;
 
 // next scheduled buzzer time
 unsigned long lastBuzzerTime = 0;
-long nextBuzzerOffTime = -1;
+unsigned long nextBuzzerOffTime = 0;
 
 /* Start Webserver */
 AsyncWebServer server(80);
@@ -58,11 +62,13 @@ Card totalTime(&dashboard, GENERIC_CARD, "Total Time");
 Card currentInternal(&dashboard, GENERIC_CARD, "Current Internal");
 Card interval(&dashboard, SLIDER_CARD, "Internal", "", 10, 600); // 10 seconds to 5 minutes
 Card buzzerInternalTime(&dashboard, SLIDER_CARD, "Buzzer", "", 10, 1000); // 10 milliseconds to 1000 milliseconds
+Card reset(&dashboard, BUTTON_CARD, "Restart");
+// Card card1(&dashboard, BUTTON_CARD, "Test Button");
 
 // update cards on dashboard from values
 void updateDashboard() {
   interval.update((int)internalSeconds, "Seconds");
-  buzzerInternalTime.update((int) buzzerOnTimeMillis, "MilliSeconds");  
+  buzzerInternalTime.update((int) buzzerOnTimeMillis, "MS");  
 
   totalTime.update((int)(millis() / 1000));
   // next time
@@ -72,11 +78,26 @@ void updateDashboard() {
 
 }
 
+Button resetButton = Button();
+
+void resetTimer(bool value) {
+    Serial.println("[Card1] Button Callback Triggered: "+String((value)?"true":"false"));
+    lastBuzzerTime = millis() - (internalSeconds*1000);
+}
+
 void setup() {
   Serial.begin(74880); // same as esp8266 default
 
-  pinMode(D1, OUTPUT);
-  digitalWrite(D1, LOW); // start with buzzer off
+  EEPROM.begin(512);
+
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, LOW); // start with buzzer off
+
+  // SETUP BUTTON A
+  resetButton.attach( BUTTON_PIN , INPUT_PULLUP );
+  resetButton.interval(5); // interval in ms
+  resetButton.setPressedState(LOW); // INDICATE THAT THE LOW STATE CORRESPONDS TO PHYSICALLY PRESSING THE BUTTON
+  
   /* Connect WiFi */
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
@@ -106,30 +127,36 @@ void setup() {
     internalSeconds = value;
     updateDashboard();
   });
+
+  reset.attachCallback(resetTimer);
 }
 
 void loop() {
+  resetButton.update();
 
+  if (resetButton.pressed()) {
+    resetTimer(true);
+  }
   /* Send Updates to our Dashboard (realtime) */
   EVERY_N_MILLIS (1000) {
     updateDashboard();
   }
 
   // end of internal
-  if ((lastBuzzerTime + (internalSeconds*1000)) <= millis()) {
+  if (nextBuzzerOffTime == 0 && (lastBuzzerTime + (internalSeconds*1000)) <= millis()) {
     // buzzer goes off
     lastBuzzerTime = millis();
     // buzzer off time can just be a number
     nextBuzzerOffTime = millis() + buzzerOnTimeMillis;
     Serial.println("Buzzer on");
-    digitalWrite(D1, HIGH);
+    digitalWrite(RELAY_PIN, HIGH);
     updateDashboard();
   }
   // next internal
-  if (nextBuzzerOffTime != -1 && nextBuzzerOffTime <= millis()) {
-    nextBuzzerOffTime = -1;
+  if (nextBuzzerOffTime != 0 && nextBuzzerOffTime <= millis()) {
+    nextBuzzerOffTime = 0;
     Serial.println("Buzzer off");
-    digitalWrite(D1, LOW);
+    digitalWrite(RELAY_PIN, LOW);
     updateDashboard();
   }
   
