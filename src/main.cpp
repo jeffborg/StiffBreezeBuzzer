@@ -73,7 +73,7 @@ void updateDashboard() {
 }
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(74880); // same as esp8266 default
 
   pinMode(D1, OUTPUT);
   digitalWrite(D1, LOW); // start with buzzer off
