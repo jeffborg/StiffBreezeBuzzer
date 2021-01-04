@@ -113,7 +113,7 @@ void setup() {
   EEPROM.begin(512);
 
   // read in settings
-  if (EEPROM.read(0) != 0xff) {
+  if (EEPROM.read(0) == 0xff) {
     // write default settings to eeprom
     updateEEPROM();
   } else {
