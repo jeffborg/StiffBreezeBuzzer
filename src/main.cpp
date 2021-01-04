@@ -20,6 +20,8 @@
 #include <EEPROM.h>
 // debouncing library
 #include <Bounce2.h>
+// timer library
+#include <Ticker.h>
 
 #define RELAY_PIN D1
 #define BUTTON_PIN D7
@@ -40,12 +42,11 @@
 #include "secrets.h"
 
 // internal time
-unsigned int internalSeconds = 10;
+unsigned int intervalSeconds = 10;
 // buzzer internal time
 unsigned int buzzerOnTimeMillis = 200;
 
 // next scheduled buzzer time
-unsigned long lastBuzzerTime = 0;
 unsigned long nextBuzzerOffTime = 0;
 
 /* Start Webserver */
@@ -63,16 +64,26 @@ Card currentInternal(&dashboard, GENERIC_CARD, "Current Internal");
 Card interval(&dashboard, SLIDER_CARD, "Internal", "", 10, 600); // 10 seconds to 5 minutes
 Card buzzerInternalTime(&dashboard, SLIDER_CARD, "Buzzer", "", 10, 1000); // 10 milliseconds to 1000 milliseconds
 Card reset(&dashboard, BUTTON_CARD, "Restart");
-// Card card1(&dashboard, BUTTON_CARD, "Test Button");
+Card timerRunningCard(&dashboard, BUTTON_CARD, "Active");
+
+
+void triggerBuzzer();
+
+// main timer
+Ticker timer(triggerBuzzer, intervalSeconds * 1000);
 
 // update cards on dashboard from values
 void updateDashboard() {
-  interval.update((int)internalSeconds, "Seconds");
+  interval.update((int)intervalSeconds, "Seconds");
   buzzerInternalTime.update((int) buzzerOnTimeMillis, "MS");  
 
   totalTime.update((int)(millis() / 1000));
   // next time
-  currentInternal.update((int)( (lastBuzzerTime + (internalSeconds*1000)) - millis() ) / 1000);
+  if (timer.state() == RUNNING) {
+    currentInternal.update((int)(timer.elapsed() / 1000 / 1000) + 1);
+  }
+
+  timerRunningCard.update(timer.state() == RUNNING);
 
   dashboard.sendUpdates();
 
@@ -82,7 +93,8 @@ Button resetButton = Button();
 
 void resetTimer(bool value) {
     Serial.println("[Card1] Button Callback Triggered: "+String((value)?"true":"false"));
-    lastBuzzerTime = millis() - (internalSeconds*1000);
+    timer.start();
+    triggerBuzzer();
 }
 
 void setup() {
@@ -124,15 +136,29 @@ void setup() {
   interval.attachCallback([&](int value) {
     Serial.println("[Card1] Slider Callback Triggered: "+String(value));
 
-    internalSeconds = value;
+    intervalSeconds = value;
+    // set the new timer internal
+    timer.interval(intervalSeconds * 1000);
     updateDashboard();
   });
-
+  timerRunningCard.attachCallback([&](bool value) {
+    if (timer.state() == RUNNING) {
+      timer.pause();
+    } else if (timer.state() == PAUSED) {
+      timer.resume();
+    }
+    updateDashboard();
+  });
   reset.attachCallback(resetTimer);
+
+  // start and trigger the buzzer!
+  timer.start();
+  triggerBuzzer();
 }
 
 void loop() {
   resetButton.update();
+  timer.update();
 
   if (resetButton.pressed()) {
     resetTimer(true);
@@ -142,16 +168,6 @@ void loop() {
     updateDashboard();
   }
 
-  // end of internal
-  if (nextBuzzerOffTime == 0 && (lastBuzzerTime + (internalSeconds*1000)) <= millis()) {
-    // buzzer goes off
-    lastBuzzerTime = millis();
-    // buzzer off time can just be a number
-    nextBuzzerOffTime = millis() + buzzerOnTimeMillis;
-    Serial.println("Buzzer on");
-    digitalWrite(RELAY_PIN, HIGH);
-    updateDashboard();
-  }
   // next internal
   if (nextBuzzerOffTime != 0 && nextBuzzerOffTime <= millis()) {
     nextBuzzerOffTime = 0;
@@ -160,4 +176,11 @@ void loop() {
     updateDashboard();
   }
   
+}
+
+void triggerBuzzer() {
+    nextBuzzerOffTime = millis() + buzzerOnTimeMillis;
+    Serial.println("Buzzer on");
+    digitalWrite(RELAY_PIN, HIGH);
+    updateDashboard();
 }
