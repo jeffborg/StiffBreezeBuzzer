@@ -73,7 +73,7 @@ ESPDash dashboard(&server);
 */
 Card currentInternal(&dashboard, GENERIC_CARD, "Current Internal");
 Card interval(&dashboard, SLIDER_CARD, "Internal", "", 10, 300); // 10 seconds to 5 minutes
-Card buzzerInternalTime(&dashboard, SLIDER_CARD, "Buzzer", "", 10, 1000); // 10 milliseconds to 1000 milliseconds
+Card buzzerInternalTime(&dashboard, SLIDER_CARD, "Buzzer", "", 10, 2000); // 10 milliseconds to 1000 milliseconds
 Card reset(&dashboard, BUTTON_CARD, "Restart");
 Card timerRunningCard(&dashboard, BUTTON_CARD, "Active");
 
