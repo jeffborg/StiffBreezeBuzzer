@@ -127,6 +127,9 @@ void setup() {
     EEPROM.get(0, timerSettings);
   }
 
+  // reset the main timer again as we have loaded new time from eeprom
+  timer.interval(timerSettings.intervalSeconds * 1000);
+
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, LOW); // start with buzzer off
 
