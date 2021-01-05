@@ -38,8 +38,14 @@
   #include <ESPAsyncWebServer.h>
 #endif
 #include <ESPDash.h>
+#include <DNSServer.h>
 
-#include "secrets.h"
+const byte DNS_PORT = 53;
+const IPAddress APIP(172, 0, 0, 1); // Gateway
+const char * SSID_NAME = "StiffBreezeBuzzer";
+
+DNSServer dnsServer;
+
 
 struct Settings {
   // internal time
@@ -66,7 +72,7 @@ ESPDash dashboard(&server);
   Format - (Dashboard Instance, Card Type, Card Name, Card Symbol(optional) )
 */
 Card currentInternal(&dashboard, GENERIC_CARD, "Current Internal");
-Card interval(&dashboard, SLIDER_CARD, "Internal", "", 10, 600); // 10 seconds to 5 minutes
+Card interval(&dashboard, SLIDER_CARD, "Internal", "", 10, 300); // 10 seconds to 5 minutes
 Card buzzerInternalTime(&dashboard, SLIDER_CARD, "Buzzer", "", 10, 1000); // 10 milliseconds to 1000 milliseconds
 Card reset(&dashboard, BUTTON_CARD, "Restart");
 Card timerRunningCard(&dashboard, BUTTON_CARD, "Active");
@@ -130,17 +136,18 @@ void setup() {
   resetButton.setPressedState(LOW); // INDICATE THAT THE LOW STATE CORRESPONDS TO PHYSICALLY PRESSING THE BUTTON
   
   /* Connect WiFi */
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-  if (WiFi.waitForConnectResult() != WL_CONNECTED) {
-      Serial.printf("WiFi Failed!\n");
-      return;
-  }
+  WiFi.mode(WIFI_AP);
+  WiFi.softAPConfig(APIP, APIP, IPAddress(255,255,255,0));
+  WiFi.softAP(SSID_NAME);
+
   Serial.print("IP Address: ");
   Serial.println(WiFi.localIP());
 
   /* Start AsyncWebServer */
   server.begin();
+
+  /* Start DNS */
+  dnsServer.start(DNS_PORT, "*", APIP); // DNS spoofing (Only for HTTP)
 
   // nextBuzzerTime = millis() + (internalSeconds * 1000);
   updateDashboard();
@@ -182,6 +189,7 @@ void setup() {
 void loop() {
   resetButton.update();
   timer.update();
+  dnsServer.processNextRequest();
 
   if (resetButton.pressed()) {
     resetTimer(true);
