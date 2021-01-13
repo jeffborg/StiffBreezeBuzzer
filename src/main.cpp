@@ -13,9 +13,13 @@
 
   Works with both ESP8266 & ESP32
 */
+#define NO_DASHBOARD
 
 #include <Arduino.h>
 // for every n millis function
+#include <Wire.h>
+#include <LiquidCrystal.h>
+
 #include <FastLED.h>
 #include <EEPROM.h>
 // debouncing library
@@ -26,6 +30,7 @@
 #define RELAY_PIN D1
 #define BUTTON_PIN D7
 
+#ifndef NO_DASHBOARD
 #if defined(ESP8266)
   /* ESP8266 Dependencies */
   #include <ESP8266WiFi.h>
@@ -40,12 +45,17 @@
 #include <ESPDash.h>
 #include <DNSServer.h>
 
+#include "secrets.h"
+
 const byte DNS_PORT = 53;
 const IPAddress APIP(172, 0, 0, 1); // Gateway
-const char * SSID_NAME = "StiffBreezeBuzzer";
 
 DNSServer dnsServer;
+#endif
 
+// uint8_t rs, uint8_t enable,
+//                  uint8_t d0, uint8_t d1, uint8_t d2, uint8_t d3);
+LiquidCrystal lcd(D2, D3, D4, D5, D6, D8);
 
 struct Settings {
   // internal time
@@ -61,6 +71,7 @@ Settings timerSettings({120, 500});
 // next scheduled buzzer time
 unsigned long nextBuzzerOffTime = 0;
 
+#ifndef NO_DASHBOARD
 /* Start Webserver */
 AsyncWebServer server(80);
 
@@ -76,6 +87,7 @@ Card interval(&dashboard, SLIDER_CARD, "Interval", "", 10, 300); // 10 seconds t
 Card buzzerInternalTime(&dashboard, SLIDER_CARD, "Buzzer", "", 10, 2000); // 10 milliseconds to 1000 milliseconds
 Card reset(&dashboard, BUTTON_CARD, "Restart");
 Card timerRunningCard(&dashboard, BUTTON_CARD, "Active");
+#endif
 
 
 void triggerBuzzer();
@@ -85,18 +97,36 @@ Ticker timer(triggerBuzzer, timerSettings.intervalSeconds * 1000);
 
 // update cards on dashboard from values
 void updateDashboard() {
+  #ifndef NO_DASHBOARD
   interval.update((int)timerSettings.intervalSeconds, "Seconds");
   buzzerInternalTime.update((int) timerSettings.buzzerOnTimeMillis, "MS");  
+  #endif
+
+  lcd.setCursor(0, 0);
+  // 01234567890123456789
+  // INT: 000  HORN: DDDD
+  lcd.printf("INT: %3d  HORN: %4d", timerSettings.intervalSeconds, timerSettings.buzzerOnTimeMillis);
 
   // next time
   if (timer.state() == RUNNING) {
-    currentInternal.update((int)(timer.elapsed() / 1000 / 1000) + 1);
+    int currentTime = (timer.elapsed() / 1000 / 1000) + 1;
+    #ifndef NO_DASHBOARD
+    currentInternal.update(currentTime);
+    #endif
+    // 01234567890123456789
+    // RUNNING: 000 SECONDS
+    lcd.setCursor(0, 1);
+    lcd.printf("RUNNING: %3d SECONDS", currentTime);
+  } else {
+    lcd.setCursor(0, 1);
+    lcd.print("PAUSED :");
   }
 
+  #ifndef NO_DASHBOARD
   timerRunningCard.update(timer.state() == RUNNING);
 
   dashboard.sendUpdates();
-
+  #endif
 }
 
 Button resetButton = Button();
@@ -115,6 +145,7 @@ void resetTimer(bool value) {
 
 void setup() {
   Serial.begin(74880); // same as esp8266 default
+  lcd.begin(20,2);               // initialize the lcd 
 
   EEPROM.begin(512);
 
@@ -138,10 +169,11 @@ void setup() {
   resetButton.interval(5); // interval in ms
   resetButton.setPressedState(LOW); // INDICATE THAT THE LOW STATE CORRESPONDS TO PHYSICALLY PRESSING THE BUTTON
   
+  #ifndef NO_DASHBOARD
   /* Connect WiFi */
   WiFi.mode(WIFI_AP);
   WiFi.softAPConfig(APIP, APIP, IPAddress(255,255,255,0));
-  WiFi.softAP(SSID_NAME);
+  WiFi.softAP(SSID_NAME, SSID_PASSWORD);
 
   Serial.print("IP Address: ");
   Serial.println(WiFi.localIP());
@@ -151,11 +183,13 @@ void setup() {
 
   /* Start DNS */
   dnsServer.start(DNS_PORT, "*", APIP); // DNS spoofing (Only for HTTP)
+  #endif
 
   // nextBuzzerTime = millis() + (internalSeconds * 1000);
   updateDashboard();
   // update the dashboard
 
+  #ifndef NO_DASHBOARD
   // change the buzzer buzzing time
   buzzerInternalTime.attachCallback([&](int value) {
     Serial.println("[buzz internal] Slider Callback Triggered: "+String(value));
@@ -183,7 +217,7 @@ void setup() {
     updateDashboard();
   });
   reset.attachCallback(resetTimer);
-
+  #endif
   // start and trigger the buzzer!
   timer.start();
   triggerBuzzer();
@@ -192,11 +226,15 @@ void setup() {
 void loop() {
   resetButton.update();
   timer.update();
+  
+  #ifndef NO_DASHBOARD
   dnsServer.processNextRequest();
+  #endif
 
   if (resetButton.pressed()) {
     resetTimer(true);
   }
+
   /* Send Updates to our Dashboard (realtime) */
   EVERY_N_MILLIS (1000) {
     updateDashboard();
