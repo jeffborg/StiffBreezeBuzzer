@@ -13,12 +13,14 @@
 
   Works with both ESP8266 & ESP32
 */
-#define NO_DASHBOARD
 
+// enable this to shink image size for faster uploads
 #include <Arduino.h>
 // for every n millis function
 #include <Wire.h>
 #include <LiquidCrystal.h>
+// menu builder
+#include <LiquidMenu.h>
 
 #include <FastLED.h>
 #include <EEPROM.h>
@@ -68,6 +70,36 @@ Settings timerSettings({120, 500});
 // unsigned int intervalSeconds = 10;
 // unsigned int buzzerOnTimeMillis = 200;
 
+char countdown[10];
+char *countdown_ptr = countdown;
+
+char currentInterval[10];
+char *currentInterval_ptr = currentInterval;
+
+char runtime[10] = " 0:00";
+char *runtime_ptr = runtime;
+
+// menu
+// Here the line is set to column 1, row 0 and will print the passed
+// string and the passed variable.
+LiquidLine welcome_line1(0, 0,        "Running: ", countdown_ptr);
+LiquidLine welcome_line1_paused(0, 0, "PAUSED : ", countdown_ptr);
+// LiquidLine welcome_line1(0, 0, "Running: ", countdown);
+// Here the column is 3, the row is 1 and the string is "Hello Menu".
+LiquidLine welcome_line2(0, 1, "Set:", currentInterval_ptr, " Run: ", runtime_ptr);
+/*
+ * LiquidScreen objects represent a single screen. A screen is made of
+ * one or more LiquidLine objects. Up to four LiquidLine objects can
+ * be inserted from here, but more can be added later in setup() using
+ * welcome_screen.add_line(someLine_object);.
+ */
+// Here the LiquidLine objects are the two objects from above.
+LiquidScreen welcome_screen(welcome_line1, welcome_line2);
+LiquidScreen welcome_screen_paused(welcome_line1_paused, welcome_line2);
+
+LiquidMenu menu(lcd, welcome_screen, welcome_screen_paused);
+
+
 // next scheduled buzzer time
 unsigned long nextBuzzerOffTime = 0;
 
@@ -95,31 +127,41 @@ void triggerBuzzer();
 // main timer
 Ticker timer(triggerBuzzer, timerSettings.intervalSeconds * 1000);
 
+void secondsToString(char * buffer, unsigned int seconds) {
+  uint8_t actualSeconds = seconds % 60;
+  sprintf(buffer, "%2d:%.2d", (seconds - actualSeconds) / 60, actualSeconds);
+}
+
 // update cards on dashboard from values
-void updateDashboard() {
+void updateDashboard(bool projectRunning = true) {
   #ifndef NO_DASHBOARD
   interval.update((int)timerSettings.intervalSeconds, "Seconds");
   buzzerInternalTime.update((int) timerSettings.buzzerOnTimeMillis, "MS");  
   #endif
 
-  lcd.setCursor(0, 0);
+  // lcd.setCursor(0, 0);
   // 01234567890123456789
   // INT: 000  HORN: DDDD
-  lcd.printf("INT: %3d  HORN: %4d", timerSettings.intervalSeconds, timerSettings.buzzerOnTimeMillis);
-
+  // lcd.printf("INT: %3d  HORN: %4d", timerSettings.intervalSeconds, timerSettings.buzzerOnTimeMillis);
+  bool updateDisplay = menu.get_currentScreen() == &welcome_screen || menu.get_currentScreen() == &welcome_screen_paused;
   // next time
   if (timer.state() == RUNNING) {
     int currentTime = (timer.elapsed() / 1000 / 1000) + 1;
     #ifndef NO_DASHBOARD
     currentInternal.update(currentTime);
     #endif
-    // 01234567890123456789
-    // RUNNING: 000 SECONDS
-    lcd.setCursor(0, 1);
-    lcd.printf("RUNNING: %3d SECONDS", currentTime);
+    // Serial.println(countdown);
+    secondsToString(countdown, timerSettings.intervalSeconds - currentTime);
+    if (updateDisplay) {
+      menu.change_screen(&welcome_screen);
+    }
   } else {
-    lcd.setCursor(0, 1);
-    lcd.print("PAUSED :");
+    if (updateDisplay) {
+       menu.change_screen(&welcome_screen_paused);
+    }
+  }
+  if (projectRunning && updateDisplay) {
+    menu.update();
   }
 
   #ifndef NO_DASHBOARD
@@ -135,6 +177,7 @@ Button resetButton = Button();
 void updateEEPROM() {
   EEPROM.put(0, timerSettings);
   EEPROM.commit();
+  secondsToString(currentInterval, timerSettings.intervalSeconds);
 }
 
 void resetTimer(bool value) {
@@ -157,6 +200,7 @@ void setup() {
     // eeprom is good
     EEPROM.get(0, timerSettings);
   }
+  secondsToString(currentInterval, timerSettings.intervalSeconds);
 
   // reset the main timer again as we have loaded new time from eeprom
   timer.interval(timerSettings.intervalSeconds * 1000);
@@ -186,7 +230,7 @@ void setup() {
   #endif
 
   // nextBuzzerTime = millis() + (internalSeconds * 1000);
-  updateDashboard();
+  updateDashboard(false);
   // update the dashboard
 
   #ifndef NO_DASHBOARD
@@ -220,6 +264,12 @@ void setup() {
   #endif
   // start and trigger the buzzer!
   timer.start();
+
+  welcome_line1.attach_function(0, triggerBuzzer);
+  // setup the menu
+  // menu.add_screen(welcome_screen);
+  menu.update();
+
   triggerBuzzer();
 }
 
@@ -233,10 +283,12 @@ void loop() {
 
   if (resetButton.pressed()) {
     resetTimer(true);
+    menu.switch_focus();
   }
 
   /* Send Updates to our Dashboard (realtime) */
   EVERY_N_MILLIS (1000) {
+    secondsToString(runtime, millis() / 1000);
     updateDashboard();
   }
 
@@ -247,7 +299,7 @@ void loop() {
     digitalWrite(RELAY_PIN, LOW);
     updateDashboard();
   }
-  
+
 }
 
 void triggerBuzzer() {
