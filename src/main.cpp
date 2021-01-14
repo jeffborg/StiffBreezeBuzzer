@@ -24,8 +24,8 @@
 
 #include <FastLED.h>
 #include <EEPROM.h>
-// debouncing library
-#include <Bounce2.h>
+// One button lib
+#include <OneButton.h>
 // timer library
 #include <Ticker.h>
 
@@ -76,8 +76,22 @@ char *countdown_ptr = countdown;
 char currentInterval[10];
 char *currentInterval_ptr = currentInterval;
 
+char newInterval[10];
+char *newInterval_ptr = newInterval;
+
+
 char runtime[10] = " 0:00";
 char *runtime_ptr = runtime;
+
+// are we in the menu system
+bool bInMenu = false;
+// new setting for seconds
+unsigned int newIntervalSeconds;
+
+// Used for attaching something to the lines, to make them focusable.
+void blankFunction() {
+    return;
+}
 
 // menu
 // Here the line is set to column 1, row 0 and will print the passed
@@ -97,7 +111,14 @@ LiquidLine welcome_line2(0, 1, "Set:", currentInterval_ptr, " Run: ", runtime_pt
 LiquidScreen welcome_screen(welcome_line1, welcome_line2);
 LiquidScreen welcome_screen_paused(welcome_line1_paused, welcome_line2);
 
-LiquidMenu menu(lcd, welcome_screen, welcome_screen_paused);
+// config menus
+LiquidLine config_timer_up(0, 0, "Adjust +5: ", newIntervalSeconds);
+LiquidLine config_timer_down(0, 1, "Adjust -5:", newInterval_ptr);
+LiquidLine config_save(0, 1, "Save");
+LiquidLine config_cancel(0, 1, "Cancel");
+LiquidScreen config_screen(config_timer_up, config_timer_down, config_save, config_cancel);
+
+LiquidMenu menu(lcd, welcome_screen, welcome_screen_paused, config_screen);
 
 
 // next scheduled buzzer time
@@ -116,13 +137,22 @@ ESPDash dashboard(&server);
 */
 Card currentInternal(&dashboard, GENERIC_CARD, "Current Interval");
 Card interval(&dashboard, SLIDER_CARD, "Interval", "", 10, 300); // 10 seconds to 5 minutes
-Card buzzerInternalTime(&dashboard, SLIDER_CARD, "Buzzer", "", 10, 2000); // 10 milliseconds to 1000 milliseconds
+Card buzzerInternalTime(&dashboard, SLIDER_CARD, "Buzzer", "", 10, 5000); // 10 milliseconds to 1000 milliseconds
 Card reset(&dashboard, BUTTON_CARD, "Restart");
 Card timerRunningCard(&dashboard, BUTTON_CARD, "Active");
 #endif
 
-
 void triggerBuzzer();
+
+void buttonClick();
+void buttonDoubleClick();
+void buttonLongPressStart();
+void buttonLongPressStop();
+
+void saveAndCommitSettings();
+void cancelSettings();
+void updateNewIntervalUp();
+void updateNewIntervalDown();
 
 // main timer
 Ticker timer(triggerBuzzer, timerSettings.intervalSeconds * 1000);
@@ -143,7 +173,6 @@ void updateDashboard(bool projectRunning = true) {
   // 01234567890123456789
   // INT: 000  HORN: DDDD
   // lcd.printf("INT: %3d  HORN: %4d", timerSettings.intervalSeconds, timerSettings.buzzerOnTimeMillis);
-  bool updateDisplay = menu.get_currentScreen() == &welcome_screen || menu.get_currentScreen() == &welcome_screen_paused;
   // next time
   if (timer.state() == RUNNING) {
     int currentTime = (timer.elapsed() / 1000 / 1000) + 1;
@@ -152,15 +181,15 @@ void updateDashboard(bool projectRunning = true) {
     #endif
     // Serial.println(countdown);
     secondsToString(countdown, timerSettings.intervalSeconds - currentTime);
-    if (updateDisplay) {
+    if (!bInMenu) {
       menu.change_screen(&welcome_screen);
     }
   } else {
-    if (updateDisplay) {
+    if (!bInMenu) {
        menu.change_screen(&welcome_screen_paused);
     }
   }
-  if (projectRunning && updateDisplay) {
+  if (projectRunning && !bInMenu) {
     menu.update();
   }
 
@@ -171,7 +200,7 @@ void updateDashboard(bool projectRunning = true) {
   #endif
 }
 
-Button resetButton = Button();
+OneButton button(BUTTON_PIN); // active low and pulled up (button is wired to GROUND)
 
 // write values to eeprom
 void updateEEPROM() {
@@ -180,8 +209,17 @@ void updateEEPROM() {
   secondsToString(currentInterval, timerSettings.intervalSeconds);
 }
 
-void resetTimer(bool value) {
-    Serial.println("[Card1] Button Callback Triggered: "+String((value)?"true":"false"));
+void updateIntervalSetting(int value) {
+    Serial.println("[Card1] Slider Callback Triggered: "+String(value));
+    timerSettings.intervalSeconds = value;
+    updateEEPROM();
+    // set the new timer interval
+    timer.interval(timerSettings.intervalSeconds * 1000);
+    updateDashboard();
+  }
+
+
+void resetTimer(bool value = true) {
     timer.start();
     triggerBuzzer();
 }
@@ -207,11 +245,6 @@ void setup() {
 
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, LOW); // start with buzzer off
-
-  // SETUP BUTTON A
-  resetButton.attach( BUTTON_PIN , INPUT_PULLUP );
-  resetButton.interval(5); // interval in ms
-  resetButton.setPressedState(LOW); // INDICATE THAT THE LOW STATE CORRESPONDS TO PHYSICALLY PRESSING THE BUTTON
   
   #ifndef NO_DASHBOARD
   /* Connect WiFi */
@@ -244,14 +277,8 @@ void setup() {
   });
 
   // updating the internal
-  interval.attachCallback([&](int value) {
-    Serial.println("[Card1] Slider Callback Triggered: "+String(value));
-    timerSettings.intervalSeconds = value;
-    updateEEPROM();
-    // set the new timer interval
-    timer.interval(timerSettings.intervalSeconds * 1000);
-    updateDashboard();
-  });
+  interval.attachCallback(updateIntervalSetting);
+
   timerRunningCard.attachCallback([&](bool value) {
     if (timer.state() == RUNNING) {
       timer.pause();
@@ -265,26 +292,41 @@ void setup() {
   // start and trigger the buzzer!
   timer.start();
 
-  welcome_line1.attach_function(0, triggerBuzzer);
+  // config menu scrolls
+  config_timer_up.attach_function(1,  updateNewIntervalUp);
+  config_timer_down.attach_function(1,  updateNewIntervalDown);
+  config_save.attach_function(1, saveAndCommitSettings);
+  config_cancel.attach_function(1, buttonLongPressStart);
+  config_screen.set_displayLineCount(2);
+
+  menu.set_focusPosition(Position::RIGHT);
+
   // setup the menu
   // menu.add_screen(welcome_screen);
   menu.update();
 
-  triggerBuzzer();
+  if (digitalRead(BUTTON_PIN) != LOW) {
+    triggerBuzzer();
+  }
+
+  button.attachClick(buttonClick);
+  button.attachDoubleClick(buttonDoubleClick);
+  button.attachLongPressStart(buttonLongPressStart);
+  button.attachLongPressStop(buttonLongPressStop);
 }
 
 void loop() {
-  resetButton.update();
+  button.tick();
   timer.update();
   
   #ifndef NO_DASHBOARD
   dnsServer.processNextRequest();
   #endif
 
-  if (resetButton.pressed()) {
-    resetTimer(true);
-    menu.switch_focus();
-  }
+  // if (resetButton.pressed()) {
+  //   resetTimer(true);
+  //   menu.switch_focus();
+  // }
 
   /* Send Updates to our Dashboard (realtime) */
   EVERY_N_MILLIS (1000) {
@@ -307,4 +349,73 @@ void triggerBuzzer() {
     Serial.println("Buzzer on");
     digitalWrite(RELAY_PIN, HIGH);
     updateDashboard();
+}
+
+void buttonClick() {
+  if (bInMenu) {
+    menu.call_function(1);
+  } else {
+    // pause resume
+    if (timer.state() == RUNNING) {
+      timer.pause();
+    } else if (timer.state() == PAUSED) {
+      timer.resume();
+    }
+    updateDashboard();
+  }
+  Serial.println("CLICK! (QUICK PRESS)");
+}
+
+void buttonDoubleClick() {
+  if (bInMenu) {
+    menu.switch_focus();
+  } else {
+    // enter menu
+    bInMenu = true;
+    newIntervalSeconds = timerSettings.intervalSeconds;
+    secondsToString(newInterval, newIntervalSeconds);
+    menu.change_screen(&config_screen);
+    menu.set_focusedLine(0);
+    menu.update();
+  }
+  Serial.println("DOUBLE CLICK!");
+}
+
+// this is back or force reset
+void buttonLongPressStart() {
+  if (bInMenu) {
+    bInMenu = false;
+    // force screen refresh
+    updateDashboard();
+  } else {
+    resetTimer();
+    nextBuzzerOffTime = millis() + 60000; // max 60 seconds
+  }
+  Serial.println("buttonLongPressStart");
+}
+
+// only useful when outside the menu
+void buttonLongPressStop() {
+  if (!bInMenu && nextBuzzerOffTime != 0) {
+    nextBuzzerOffTime = 1; // force buzzer off
+  }
+  Serial.println("buttonLongPressStop");
+}
+
+void saveAndCommitSettings() {
+  updateIntervalSetting(newIntervalSeconds);
+  buttonLongPressStart();
+}
+
+void updateNewIntervalUp() {
+  newIntervalSeconds += 5;
+  secondsToString(newInterval, newIntervalSeconds);
+}
+
+void updateNewIntervalDown() {
+  newIntervalSeconds -= 5;
+  if (newIntervalSeconds < 10) {
+    newIntervalSeconds = 10;
+  }
+  secondsToString(newInterval, newIntervalSeconds);
 }
