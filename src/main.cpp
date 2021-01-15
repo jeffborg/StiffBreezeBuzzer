@@ -31,6 +31,9 @@
 
 #define RELAY_PIN D1
 #define BUTTON_PIN D7
+#define VOLTAGE_PIN A0
+#define VOLATE_MULTIPLIER (0.015362776025237)
+#define VOLTAGE_OFFSET (0.779)
 
 #ifndef NO_DASHBOARD
 #if defined(ESP8266)
@@ -57,7 +60,7 @@ DNSServer dnsServer;
 
 // uint8_t rs, uint8_t enable,
 //                  uint8_t d0, uint8_t d1, uint8_t d2, uint8_t d3);
-LiquidCrystal lcd(D2, D3, D4, D5, D6, D8);
+LiquidCrystal lcd(D2, D3, D4, D5, D6, D0);
 
 struct Settings {
   // internal time
@@ -83,6 +86,9 @@ char *newInterval_ptr = newInterval;
 char runtime[10] = " 0:00";
 char *runtime_ptr = runtime;
 
+int analogValue;
+float batteryVoltage;
+
 // are we in the menu system
 bool bInMenu = false;
 // new setting for seconds
@@ -96,8 +102,8 @@ void blankFunction() {
 // menu
 // Here the line is set to column 1, row 0 and will print the passed
 // string and the passed variable.
-LiquidLine welcome_line1(0, 0,        "Running: ", countdown_ptr);
-LiquidLine welcome_line1_paused(0, 0, "PAUSED : ", countdown_ptr);
+LiquidLine welcome_line1(0, 0,        "Run:", countdown_ptr, " Bat: ", batteryVoltage);
+LiquidLine welcome_line1_paused(0, 0, "---:", countdown_ptr, " Bat: ", batteryVoltage);
 // LiquidLine welcome_line1(0, 0, "Running: ", countdown);
 // Here the column is 3, the row is 1 and the string is "Hello Menu".
 LiquidLine welcome_line2(0, 1, "Set:", currentInterval_ptr, " Run: ", runtime_ptr);
@@ -238,6 +244,13 @@ void setup() {
     // eeprom is good
     EEPROM.get(0, timerSettings);
   }
+  // in case of corruped memory
+  if (timerSettings.intervalSeconds >= 3600 || timerSettings.buzzerOnTimeMillis >= 60000) {
+    timerSettings.intervalSeconds = 120;
+    timerSettings.buzzerOnTimeMillis = 2000;
+    updateEEPROM();
+  }
+  Serial.printf("Interval: %d, BuzzerTime: %d\n", timerSettings.intervalSeconds, timerSettings.buzzerOnTimeMillis);
   secondsToString(currentInterval, timerSettings.intervalSeconds);
 
   // reset the main timer again as we have loaded new time from eeprom
@@ -331,6 +344,8 @@ void loop() {
   /* Send Updates to our Dashboard (realtime) */
   EVERY_N_MILLIS (1000) {
     secondsToString(runtime, millis() / 1000);
+    analogValue = analogRead(VOLTAGE_PIN);
+    batteryVoltage = (analogValue * VOLATE_MULTIPLIER) + VOLTAGE_OFFSET;
     updateDashboard();
   }
 
