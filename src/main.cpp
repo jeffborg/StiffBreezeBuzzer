@@ -95,6 +95,14 @@ bool bInMenu = false;
 // new setting for seconds
 unsigned int newIntervalSeconds;
 
+// custom characters
+
+// play
+// pause
+// battery
+// timer
+// runtime
+
 // menu
 // Here the line is set to column 1, row 0 and will print the passed
 // string and the passed variable.
@@ -114,10 +122,10 @@ LiquidScreen welcome_screen(welcome_line1, welcome_line2);
 LiquidScreen welcome_screen_paused(welcome_line1_paused, welcome_line2);
 
 // config menus
-LiquidLine config_timer_up(0, 0, "Adjust +5: ", newIntervalSeconds);
-LiquidLine config_timer_down(0, 1, "Adjust -5:", newInterval_ptr);
-LiquidLine config_save(0, 1, "Save");
-LiquidLine config_cancel(0, 1, "Cancel");
+LiquidLine config_timer_up(0, 0, " +5S: ", newIntervalSeconds);
+LiquidLine config_timer_down(0, 1, " -5S:", newInterval_ptr);
+LiquidLine config_save(0, 1, " Save");
+LiquidLine config_cancel(0, 1, " Cancel");
 LiquidScreen config_screen(config_timer_up, config_timer_down, config_save, config_cancel);
 
 LiquidMenu menu(lcd, welcome_screen, welcome_screen_paused, config_screen);
@@ -146,19 +154,28 @@ Card timerRunningCard(&dashboard, BUTTON_CARD, "Active");
 
 void triggerBuzzer();
 
+// callback for single button click - will pause timer in run mode or select selection in config mode
 void buttonClick();
+// callback for entering config in run mode or selecting the next item in config mode
 void buttonDoubleClick();
+// call back to start the buzzer and begin the timer reset
 void buttonLongPressStart();
+// call back to stop the buzzer
 void buttonLongPressStop();
 
+// this will take the temp settings (timer interval) and commit to EEPROM as well as update the working setting in memory
 void saveAndCommitSettings();
+// this will simply exit config mode
 void cancelSettings();
+// this will increase the temp interval by 5 seconds
 void updateNewIntervalUp();
+// this will decrease the temp interval by 5 seconds
 void updateNewIntervalDown();
 
 // main timer
 Ticker timer(triggerBuzzer, timerSettings.intervalSeconds * 1000);
 
+// convert a single number of seconds to a string formatted DD:DD for minutes and seconds the string will be placed into a buffer
 void secondsToString(char * buffer, unsigned int seconds) {
   uint8_t actualSeconds = seconds % 60;
   sprintf(buffer, "%2d:%.2d", (seconds - actualSeconds) / 60, actualSeconds);
@@ -342,7 +359,7 @@ void setup() {
   config_cancel.attach_function(1, buttonLongPressStart);
   config_screen.set_displayLineCount(2);
 
-  menu.set_focusPosition(Position::RIGHT);
+  menu.set_focusPosition(Position::LEFT);
 
   // setup the menu
   // menu.add_screen(welcome_screen);
