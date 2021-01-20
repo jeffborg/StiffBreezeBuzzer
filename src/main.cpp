@@ -103,14 +103,55 @@ unsigned int newIntervalSeconds;
 // timer
 // runtime
 
+namespace glyphs {
+  uint8_t play[8] = {
+        0B10000,
+        0B11000,
+        0B11100,
+        0B11110,
+        0B11100,
+        0B11000,
+        0B10000,
+        0B00000
+  };
+  uint8_t pause[8] = {
+        0B11011,
+        0B11011,
+        0B11011,
+        0B11011,
+        0B11011,
+        0B11011,
+        0B11011,
+        0B00000
+  };
+
+  uint8_t clock[8] = {
+			0b00000,
+			0b01110,
+			0b10101,
+			0b10111,
+			0b10001,
+			0b01110,
+			0b00000,
+			0b00000
+  };
+  byte play_glyphIndex = 0;
+  byte pause_glyphIndex = 1;
+  byte clock_glyphIndex = 2;
+}
+
 // menu
 // Here the line is set to column 1, row 0 and will print the passed
 // string and the passed variable.
-LiquidLine welcome_line1(0, 0,        "Run:", countdown_ptr, " Bat: ", batteryVoltage);
-LiquidLine welcome_line1_paused(0, 0, "---:", countdown_ptr, " Bat: ", batteryVoltage);
+// 01234567890123456789
+// X N:NN RUN VLT NN.NN 
+// X N:NN --- BAT NN.NN
+// X N:NN SET RUN DD:DD
+LiquidLine welcome_line1(0, 0,        glyphs::play_glyphIndex,  countdown_ptr, " RUN VLT ", batteryVoltage);
+LiquidLine welcome_line1_paused(0, 0, glyphs::pause_glyphIndex, countdown_ptr, " --- VLT ", batteryVoltage);
 // LiquidLine welcome_line1(0, 0, "Running: ", countdown);
 // Here the column is 3, the row is 1 and the string is "Hello Menu".
-LiquidLine welcome_line2(0, 1, "Set:", currentInterval_ptr, " Run: ", runtime_ptr);
+LiquidLine welcome_line2(0, 1, glyphs::clock_glyphIndex, currentInterval_ptr, " SET RUN ", runtime_ptr);
 /*
  * LiquidScreen objects represent a single screen. A screen is made of
  * one or more LiquidLine objects. Up to four LiquidLine objects can
@@ -246,6 +287,9 @@ void resetTimer(bool value = true) {
 void setup() {
   Serial.begin(74880); // same as esp8266 default
   lcd.begin(20,2);               // initialize the lcd 
+  lcd.createChar(glyphs::play_glyphIndex, glyphs::play);
+  lcd.createChar(glyphs::pause_glyphIndex, glyphs::pause);
+  lcd.createChar(glyphs::clock_glyphIndex, glyphs::clock);
 
   EEPROM.begin(512);
 
@@ -290,7 +334,6 @@ void setup() {
     } else { // U_FS
       type = "filesystem";
     }
-
     // NOTE: if updating FS this would be the place to unmount FS using FS.end()
     Serial.println("Start updating " + type);
   });
@@ -352,6 +395,11 @@ void setup() {
   #endif
   // start and trigger the buzzer!
   timer.start();
+
+  // setup glyphs
+  welcome_line1.set_asGlyph(1);
+  welcome_line1_paused.set_asGlyph(1);
+  welcome_line2.set_asGlyph(1);
 
   // config menu scrolls
   config_timer_up.attach_function(1,  updateNewIntervalUp);
