@@ -265,6 +265,7 @@ void setup() {
   }
   Serial.printf("Interval: %d, BuzzerTime: %d\n", timerSettings.intervalSeconds, timerSettings.buzzerOnTimeMillis);
   secondsToString(currentInterval, timerSettings.intervalSeconds);
+  secondsToString(countdown, timerSettings.intervalSeconds);
 
   // reset the main timer again as we have loaded new time from eeprom
   timer.interval(timerSettings.intervalSeconds * 1000);
