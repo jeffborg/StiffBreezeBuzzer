@@ -432,6 +432,10 @@ void buttonClick() {
 void buttonDoubleClick() {
   if (bInMenu) {
     menu.switch_focus();
+    // bug skip the last line if it's not focusable
+    if (!menu.set_focusedLine(menu.get_focusedLine())) {
+      menu.switch_focus();
+    }
   } else {
     // enter menu
     bInMenu = true;
