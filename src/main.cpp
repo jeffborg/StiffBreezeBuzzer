@@ -235,7 +235,7 @@ void updateDashboard(bool projectRunning = true) {
   // lcd.printf("INT: %3d  HORN: %4d", timerSettings.intervalSeconds, timerSettings.buzzerOnTimeMillis);
   // next time
   if (timer.state() == RUNNING) {
-    int currentTime = (timer.elapsed() / 1000 / 1000) + 1;
+    int currentTime = (timer.elapsed() / 1000 / 1000);
     #ifndef NO_DASHBOARD
     currentInternal.update(currentTime);
     #endif
