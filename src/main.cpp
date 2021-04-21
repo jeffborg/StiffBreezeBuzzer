@@ -373,7 +373,7 @@ void setup() {
   #ifndef NO_DASHBOARD
   /* Connect WiFi */
   WiFi.mode(WIFI_AP);
-  WiFi.softAPConfig(APIP, APIP, IPAddress(255,255,255,0));
+  WiFi.softAPConfig(APIP, IPAddress(0,0,0,0), IPAddress(255,255,255,0));
   WiFi.softAP(SSID_NAME, SSID_PASSWORD);
 
   Serial.print("IP Address: ");
