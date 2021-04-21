@@ -131,8 +131,9 @@ float voltToPercent(float volts) {
     return 100;
 }
 
-float batteryPercentage;
-
+// 9 characters + null = 10
+char batteryStatusString[10] = "";
+char *batteryStatusString_ptr = batteryStatusString;
 
 // are we in the menu system
 bool bInMenu = false;
@@ -191,8 +192,8 @@ namespace glyphs {
 // X N:NN RUN VLT NN.NN 
 // X N:NN --- BAT NN.NN
 // X N:NN SET RUN DD:DD
-LiquidLine welcome_line1(0, 0,        glyphs::play_glyphIndex,  countdown_ptr, " RUN VLT ", batteryVoltage);
-LiquidLine welcome_line1_paused(0, 0, glyphs::pause_glyphIndex, countdown_ptr, " --- PCT ", batteryPercentage);
+LiquidLine welcome_line1(0, 0,        glyphs::play_glyphIndex,  countdown_ptr, " RUN ", batteryStatusString_ptr);
+LiquidLine welcome_line1_paused(0, 0, glyphs::pause_glyphIndex, countdown_ptr, " --- ", batteryStatusString_ptr);
 // LiquidLine welcome_line1(0, 0, "Running: ", countdown);
 // Here the column is 3, the row is 1 and the string is "Hello Menu".
 LiquidLine welcome_line2(0, 1, glyphs::clock_glyphIndex, currentInterval_ptr, " SET RUN ", runtime_ptr);
@@ -330,10 +331,16 @@ void resetTimer(bool value = true) {
 
 // every second + at the state
 void updateEverySecond() {
-    secondsToString(runtime, millis() / 1000);
+    unsigned long uptimeSeconds = millis() / 1000;
+    secondsToString(runtime, uptimeSeconds);
     analogValue = analogRead(VOLTAGE_PIN);
     batteryVoltage = (analogValue * VOLATE_MULTIPLIER) + VOLTAGE_OFFSET;
-    batteryPercentage = voltToPercent(batteryVoltage);
+    // write percentage onto screen depending on time running alternate every 2 seconds
+    if ((uptimeSeconds / 2) % 2 == 0) {
+      sprintf(batteryStatusString, "BAT%5.0f%%", voltToPercent(batteryVoltage));
+    } else {
+      sprintf(batteryStatusString, "BAT%5.1fV", batteryVoltage);
+    }
     updateDashboard();
 }
 
