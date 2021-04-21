@@ -90,6 +90,50 @@ char *runtime_ptr = runtime;
 int analogValue;
 float batteryVoltage;
 
+struct charge
+{
+    unsigned int socpct;
+    float volts;
+};
+
+// taken from https://web.archive.org/web/20100722144045/http://www.windsun.com/Batteries/Battery_FAQ.htm#Battery%20Voltages
+const struct charge soctable[] = {
+    { 0, 10.5 },
+    { 10, 11.31 },
+    { 20, 11.58 },
+    { 30, 11.75 },
+    { 40, 11.9 },
+    { 50, 12.06 },
+    { 60, 12.20 },
+    { 70, 12.32 },
+    { 80, 12.42 },
+    { 90, 12.5 },
+    { 100, 12.7 }
+};
+const unsigned int soctableitems = sizeof(soctable) / sizeof(struct charge);
+
+// convert a voltage to a rough percentage
+float voltToPercent(float volts) {
+    for(unsigned int i = 0; i < soctableitems; i++) {
+        if (volts < soctable[i].volts) {
+            if (i == 0) {
+                // first item is basically flat!
+                return soctable[i].socpct;
+            } else {
+                // have pervious item to integrate value
+                struct charge prevv = soctable[i-1];
+                struct charge thisv = soctable[i];
+                return prevv.socpct + ((thisv.socpct - prevv.socpct) * (volts - prevv.volts) / (thisv.volts - prevv.volts));
+            }
+        }
+    }
+    // beyond table just return 100
+    return 100;
+}
+
+float batteryPercentage;
+
+
 // are we in the menu system
 bool bInMenu = false;
 // new setting for seconds
@@ -148,7 +192,7 @@ namespace glyphs {
 // X N:NN --- BAT NN.NN
 // X N:NN SET RUN DD:DD
 LiquidLine welcome_line1(0, 0,        glyphs::play_glyphIndex,  countdown_ptr, " RUN VLT ", batteryVoltage);
-LiquidLine welcome_line1_paused(0, 0, glyphs::pause_glyphIndex, countdown_ptr, " --- VLT ", batteryVoltage);
+LiquidLine welcome_line1_paused(0, 0, glyphs::pause_glyphIndex, countdown_ptr, " --- PCT ", batteryPercentage);
 // LiquidLine welcome_line1(0, 0, "Running: ", countdown);
 // Here the column is 3, the row is 1 and the string is "Hello Menu".
 LiquidLine welcome_line2(0, 1, glyphs::clock_glyphIndex, currentInterval_ptr, " SET RUN ", runtime_ptr);
@@ -282,6 +326,15 @@ void updateIntervalSetting(int value) {
 void resetTimer(bool value = true) {
     timer.start();
     triggerBuzzer();
+}
+
+// every second + at the state
+void updateEverySecond() {
+    secondsToString(runtime, millis() / 1000);
+    analogValue = analogRead(VOLTAGE_PIN);
+    batteryVoltage = (analogValue * VOLATE_MULTIPLIER) + VOLTAGE_OFFSET;
+    batteryPercentage = voltToPercent(batteryVoltage);
+    updateDashboard();
 }
 
 void setup() {
@@ -422,6 +475,9 @@ void setup() {
   button.attachDoubleClick(buttonDoubleClick);
   button.attachLongPressStart(buttonLongPressStart);
   button.attachLongPressStop(buttonLongPressStop);
+
+  // do initial update
+  updateEverySecond();
 }
 
 void loop() {
@@ -440,10 +496,7 @@ void loop() {
 
   /* Send Updates to our Dashboard (realtime) */
   EVERY_N_MILLIS (1000) {
-    secondsToString(runtime, millis() / 1000);
-    analogValue = analogRead(VOLTAGE_PIN);
-    batteryVoltage = (analogValue * VOLATE_MULTIPLIER) + VOLTAGE_OFFSET;
-    updateDashboard();
+    updateEverySecond();
   }
 
   // next internal
